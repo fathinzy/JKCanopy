@@ -1,21 +1,49 @@
-import Header from './components/Header.jsx'
-import Hero from './components/Hero.jsx'
-import Gallery from './components/Gallery.jsx'
-import Layouts from './components/Layouts.jsx'
-import Calculator from './components/Calculator.jsx'
-import Footer from './components/Footer.jsx'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { AuthProvider } from './system/auth/AuthContext.jsx'
+import ProtectedRoute from './system/auth/ProtectedRoute.jsx'
+import Website from './pages/Website.jsx'
+import Login from './system/pages/Login.jsx'
+import SystemLayout from './system/SystemLayout.jsx'
+import Dashboard from './system/pages/Dashboard.jsx'
+import Items from './system/pages/Items.jsx'
+import BookingForm from './system/pages/BookingForm.jsx'
+import BookingList from './system/pages/BookingList.jsx'
+import Workers from './system/pages/Workers.jsx'
+import Quotations from './system/pages/Quotations.jsx'
+import Payments from './system/pages/Payments.jsx'
+import CalendarPage from './system/pages/CalendarPage.jsx'
 
 export default function App() {
   return (
-    <div className="min-h-screen">
-      <Header />
-      <main>
-        <Hero />
-        <Gallery />
-        <Layouts />
-        <Calculator />
-      </main>
-      <Footer />
-    </div>
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          {/* Public marketing website */}
+          <Route path="/" element={<Website />} />
+
+          {/* Auth */}
+          <Route path="/system/login" element={<Login />} />
+
+          {/* Protected management system */}
+          <Route
+            path="/system"
+            element={
+              <ProtectedRoute>
+                <SystemLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<Dashboard />} />
+            <Route path="items" element={<Items />} />
+            <Route path="bookings" element={<BookingList />} />
+            <Route path="bookings/new" element={<BookingForm />} />
+            <Route path="quotations" element={<Quotations />} />
+            <Route path="workers" element={<Workers />} />
+            <Route path="payments" element={<Payments />} />
+            <Route path="calendar" element={<CalendarPage />} />
+          </Route>
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
   )
 }
