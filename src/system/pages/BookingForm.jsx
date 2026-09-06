@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase.js'
 import { buildQuote } from '../lib/quote.js'
+import { derivePaymentStatus } from '../lib/bookingHelpers.js'
 import {
   PageHeader,
   Card,
@@ -30,6 +31,7 @@ const initial = {
   round_tables: 4,
   long_tables: 2,
   extra_chairs: 0,
+  deposit: '',
   notes: '',
 }
 
@@ -95,6 +97,10 @@ export default function BookingForm() {
 
   const quote = useMemo(() => buildQuote(bookingForQuote, items), [bookingForQuote, items])
 
+  // Deposit clamped to the quote total, and the resulting balance.
+  const depositAmount = Math.min(Math.max(0, Number(form.deposit) || 0), quote.total)
+  const balanceDue = Math.max(0, quote.total - depositAmount)
+
   function set(key) {
     return (e) => setForm({ ...form, [key]: e.target.value })
   }
@@ -132,7 +138,8 @@ export default function BookingForm() {
         chairs: totalChairs,
         notes: form.notes.trim(),
         status: 'confirmed',
-        payment_status: 'unpaid',
+        payment_status: depositAmount > 0 ? derivePaymentStatus(quote.total, depositAmount) : 'unpaid',
+        deposit_paid: depositAmount,
         total: quote.total,
       })
       .select()
@@ -151,6 +158,20 @@ export default function BookingForm() {
       subtotal: quote.subtotal,
       total: quote.total,
     })
+
+    // 3. If a deposit was entered, record it as the first payment in the ledger.
+    if (depositAmount > 0) {
+      const { error: pErr } = await supabase.from('booking_payments').insert({
+        booking_id: booking.id,
+        amount: depositAmount,
+        note: 'Deposit',
+      })
+      if (pErr) {
+        setSaving(false)
+        setError(pErr.message)
+        return
+      }
+    }
 
     setSaving(false)
     if (qErr) {
@@ -287,6 +308,37 @@ export default function BookingForm() {
               </table>
             </div>
           )}
+
+          {/* Deposit + balance */}
+          <div className="mt-5 rounded-lg bg-sand/60 p-4">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Field label="Deposit (RM)">
+                <input
+                  className={inputClass}
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.deposit}
+                  onChange={set('deposit')}
+                  placeholder="0.00"
+                />
+              </Field>
+              <div>
+                <p className="mb-1 text-sm font-medium text-canopy-dark">Deposit Recorded</p>
+                <p className="px-1 py-2 font-semibold text-canopy-dark">{currency(depositAmount)}</p>
+              </div>
+              <div>
+                <p className="mb-1 text-sm font-medium text-canopy-dark">Balance</p>
+                <p className={`px-1 py-2 font-semibold ${balanceDue > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  {currency(balanceDue)}
+                </p>
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-canopy/50">
+              The deposit is recorded as the first payment. Add more payments later from the
+              Booking List until the balance is zero.
+            </p>
+          </div>
 
           {error && <p className="mt-4 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-700">{error}</p>}
 

@@ -40,6 +40,8 @@ export default function Quotations() {
 
   function printQuotation(q) {
     const b = q.booking || {}
+    const depositPaid = Number(b.deposit_paid || 0)
+    const balanceDue = Math.max(0, Number(q.total || 0) - depositPaid)
     const lineRows = (q.line_items || [])
       .map(
         (li) => `<tr>
@@ -83,8 +85,16 @@ export default function Quotations() {
         <tbody>${lineRows}</tbody>
         <tfoot>
           <tr>
-            <td colspan="3" class="num total">Total</td>
+            <td colspan="3" class="num">Total</td>
             <td class="num total">${formatMoney(q.total)}</td>
+          </tr>
+          <tr>
+            <td colspan="3" class="num">Deposit</td>
+            <td class="num">${formatMoney(depositPaid)}</td>
+          </tr>
+          <tr>
+            <td colspan="3" class="num total">Balance</td>
+            <td class="num total">${formatMoney(balanceDue)}</td>
           </tr>
         </tfoot>
       </table>

@@ -164,6 +164,10 @@ export default function BookingList() {
             setSelected(null)
             load()
           }}
+          onDeleted={() => {
+            setSelected(null)
+            load()
+          }}
         />
       )}
     </div>

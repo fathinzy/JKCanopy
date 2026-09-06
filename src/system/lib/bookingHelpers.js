@@ -17,6 +17,16 @@ export const paymentMeta = {
   settled: { label: 'Fully Settled', tone: 'green' },
 }
 
+// Sum a list of payment rows (each with an `amount`).
+export function sumPayments(payments) {
+  return (payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0)
+}
+
+// Balance still owed on a booking given its total and payments.
+export function balanceOf(total, payments) {
+  return Math.max(0, (Number(total) || 0) - sumPayments(payments))
+}
+
 export const bookingStatusMeta = {
   draft: { label: 'Draft', tone: 'gray' },
   confirmed: { label: 'Confirmed', tone: 'blue' },
