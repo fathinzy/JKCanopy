@@ -52,6 +52,8 @@ To add real gallery photos: put the file in `public/gallery/`, then set that ite
 
 1. **Create the database tables.** In the Supabase dashboard, open **SQL Editor → New query**, paste the contents of [`supabase/schema.sql`](supabase/schema.sql), and click **Run**. This creates all tables, security rules, the auto booking-number (`JK-2026-0001`), and seeds four starter items.
 
+   Then run [`supabase/schema_v2.sql`](supabase/schema_v2.sql) the same way. This adds deposit tracking and the multi-job payment-slip support used by the newer Booking List, Payment Slips, and Dashboard features. It is safe to run once (or again — it only adds what is missing).
+
 2. **Create login users** for your dad, sister, and you. In the dashboard go to **Authentication → Users → Add user**, set an email + password for each. (Email confirmation can be turned off under **Authentication → Providers → Email** so logins work immediately.)
 
 3. **Connect the app.** Copy `.env.example` to `.env` and fill in:
@@ -65,14 +67,16 @@ To add real gallery photos: put the file in `public/gallery/`, then set that ite
 
 | Module | What it does |
 |--------|--------------|
-| **Dashboard** | Upcoming events, pending payments, month revenue |
+| **Dashboard** | Filter by year/month (drills down: all years → yearly, one year → monthly, one month → daily). Clickable cards for upcoming events, pending payment, revenue, total bookings. Charts for revenue, canopy orders, worker salary, and jobs assigned. |
 | **New Booking** | 2-step registry: details → auto quotation → confirm. Auto booking ID. |
-| **Booking List** | Assign workers, update payment status (Unpaid → Deposit → Balance → Settled) |
+| **Booking List** | Search by booking no/customer, filter by payment and booking status. Tap a booking to edit everything, record deposit (shows balance), assign workers (sends a WhatsApp job message to the worker), and set status (Confirmed / Completed / Cancelled). Cancelled bookings drop off the calendar. |
 | **Quotations** | List all quotations, print / save as PDF |
-| **Calendar** | Month view of event dates; click an event to add it to Google Calendar |
-| **Workers** | Worker registry (name, IC, bank details) |
-| **Payment Slips** | Record worker payments, print / save as PDF |
+| **Calendar** | Month view of event dates (cancelled bookings excluded); click an event to add it to Google Calendar |
+| **Workers** | Worker registry (name, IC, phone, bank details). Phone is needed for WhatsApp job messages. |
+| **Payment Slips** | Pick a worker, see their completed unpaid jobs, select multiple and key in the amount for each, then generate one slip. Paid jobs disappear from the list. Print / save as PDF. |
 | **Items** | Item registry (name, category, price) — drives quotation pricing |
+
+The whole system is responsive and works on phones and tablets.
 
 ### How pricing works
 

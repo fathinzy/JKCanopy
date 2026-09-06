@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase.js'
 import {
@@ -8,44 +8,42 @@ import {
   EmptyState,
   StatusBadge,
   currency,
+  inputClass,
 } from '../components/ui.jsx'
-
-const paymentOptions = [
-  { id: 'unpaid', label: 'Unpaid', tone: 'red' },
-  { id: 'deposit', label: 'Deposit Paid', tone: 'amber' },
-  { id: 'balance', label: 'Balance Paid', tone: 'blue' },
-  { id: 'settled', label: 'Fully Settled', tone: 'green' },
-]
-
-function paymentTone(status) {
-  return paymentOptions.find((p) => p.id === status)?.tone ?? 'gray'
-}
-function paymentLabel(status) {
-  return paymentOptions.find((p) => p.id === status)?.label ?? status
-}
+import { paymentMeta, bookingStatusMeta } from '../lib/bookingHelpers.js'
+import BookingDetail from './BookingDetail.jsx'
 
 export default function BookingList() {
   const [bookings, setBookings] = useState([])
   const [workers, setWorkers] = useState([])
+  const [items, setItems] = useState([])
   const [assignments, setAssignments] = useState({}) // bookingId -> [worker_id]
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [expanded, setExpanded] = useState(null)
+  const [selected, setSelected] = useState(null)
+
+  // Filters
+  const [search, setSearch] = useState('')
+  const [payFilter, setPayFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
 
   async function load() {
     setLoading(true)
-    const [bRes, wRes, awRes] = await Promise.all([
+    const [bRes, wRes, iRes, awRes] = await Promise.all([
       supabase.from('bookings').select('*').order('event_date', { ascending: true }),
-      supabase.from('workers').select('id,name').order('name'),
+      supabase.from('workers').select('*').order('name'),
+      supabase.from('items').select('*'),
       supabase.from('booking_workers').select('booking_id,worker_id'),
     ])
-    if (bRes.error || wRes.error || awRes.error) {
-      setError(bRes.error?.message || wRes.error?.message || awRes.error?.message)
+    const err = bRes.error || wRes.error || iRes.error || awRes.error
+    if (err) {
+      setError(err.message)
       setLoading(false)
       return
     }
     setBookings(bRes.data ?? [])
     setWorkers(wRes.data ?? [])
+    setItems(iRes.data ?? [])
     const map = {}
     for (const row of awRes.data ?? []) {
       map[row.booking_id] = map[row.booking_id] || []
@@ -59,49 +57,26 @@ export default function BookingList() {
     load()
   }, [])
 
-  async function updatePayment(bookingId, status) {
-    const { error } = await supabase
-      .from('bookings')
-      .update({ payment_status: status })
-      .eq('id', bookingId)
-    if (error) setError(error.message)
-    else {
-      setBookings((bs) =>
-        bs.map((b) => (b.id === bookingId ? { ...b, payment_status: status } : b)),
-      )
-    }
-  }
-
-  async function toggleWorker(bookingId, workerId) {
-    const current = assignments[bookingId] || []
-    const isAssigned = current.includes(workerId)
-    if (isAssigned) {
-      const { error } = await supabase
-        .from('booking_workers')
-        .delete()
-        .eq('booking_id', bookingId)
-        .eq('worker_id', workerId)
-      if (error) return setError(error.message)
-    } else {
-      const { error } = await supabase
-        .from('booking_workers')
-        .insert({ booking_id: bookingId, worker_id: workerId })
-      if (error) return setError(error.message)
-    }
-    setAssignments((prev) => {
-      const list = prev[bookingId] || []
-      return {
-        ...prev,
-        [bookingId]: isAssigned ? list.filter((id) => id !== workerId) : [...list, workerId],
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return bookings.filter((b) => {
+      if (payFilter !== 'all' && b.payment_status !== payFilter) return false
+      if (statusFilter !== 'all' && b.status !== statusFilter) return false
+      if (q) {
+        const hay = `${b.booking_no ?? ''} ${b.customer_name ?? ''}`.toLowerCase()
+        if (!hay.includes(q)) return false
       }
+      return true
     })
-  }
+  }, [bookings, search, payFilter, statusFilter])
+
+  const selectedBooking = bookings.find((b) => b.id === selected)
 
   return (
     <div>
       <PageHeader
         title="Booking List"
-        subtitle="Assign workers and update payment status"
+        subtitle="Tap a booking to view, edit, assign workers and record payment"
         action={
           <Link to="/system/bookings/new">
             <Button variant="gold">+ New Booking</Button>
@@ -111,88 +86,85 @@ export default function BookingList() {
 
       {error && <p className="mb-4 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-700">{error}</p>}
 
+      {/* Filters */}
+      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+        <input
+          className={inputClass}
+          placeholder="Search booking no or customer..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select className={inputClass} value={payFilter} onChange={(e) => setPayFilter(e.target.value)}>
+          <option value="all">All payment status</option>
+          {Object.entries(paymentMeta).map(([id, m]) => (
+            <option key={id} value={id}>{m.label}</option>
+          ))}
+        </select>
+        <select className={inputClass} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="all">All booking status</option>
+          {Object.entries(bookingStatusMeta).map(([id, m]) => (
+            <option key={id} value={id}>{m.label}</option>
+          ))}
+        </select>
+      </div>
+
       {loading ? (
         <p className="text-sm text-canopy/60">Loading...</p>
-      ) : bookings.length === 0 ? (
-        <EmptyState>No bookings yet.</EmptyState>
+      ) : filtered.length === 0 ? (
+        <EmptyState>No bookings match your filters.</EmptyState>
       ) : (
         <div className="space-y-3">
-          {bookings.map((b) => {
+          {filtered.map((b) => {
             const assigned = assignments[b.id] || []
-            const isOpen = expanded === b.id
+            const balance = Math.max(0, Number(b.total || 0) - Number(b.deposit_paid || 0))
             return (
               <Card key={b.id}>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelected(b.id)}
+                  className="flex w-full flex-wrap items-center justify-between gap-3 text-left"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold text-canopy-dark">{b.booking_no}</span>
-                      <StatusBadge tone={paymentTone(b.payment_status)}>
-                        {paymentLabel(b.payment_status)}
+                      <StatusBadge tone={bookingStatusMeta[b.status]?.tone ?? 'gray'}>
+                        {bookingStatusMeta[b.status]?.label ?? b.status}
+                      </StatusBadge>
+                      <StatusBadge tone={paymentMeta[b.payment_status]?.tone ?? 'gray'}>
+                        {paymentMeta[b.payment_status]?.label ?? b.payment_status}
                       </StatusBadge>
                     </div>
-                    <p className="mt-1 text-sm text-canopy-dark">{b.customer_name}</p>
+                    <p className="mt-1 truncate text-sm text-canopy-dark">{b.customer_name}</p>
                     <p className="text-xs text-canopy/60">
-                      {b.event_date} &middot; {b.canopies} canopy &middot; {b.chairs} chairs &middot;{' '}
-                      {currency(b.total)}
+                      {b.event_date} &middot; {b.canopies} canopy &middot; {assigned.length} worker(s)
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={b.payment_status}
-                      onChange={(e) => updatePayment(b.id, e.target.value)}
-                      className="rounded-lg border border-canopy/20 bg-white px-2 py-1.5 text-sm outline-none focus:border-canopy"
-                    >
-                      {paymentOptions.map((p) => (
-                        <option key={p.id} value={p.id}>{p.label}</option>
-                      ))}
-                    </select>
-                    <Button
-                      variant="outline"
-                      onClick={() => setExpanded(isOpen ? null : b.id)}
-                    >
-                      {isOpen ? 'Hide' : 'Assign'} ({assigned.length})
-                    </Button>
-                  </div>
-                </div>
-
-                {isOpen && (
-                  <div className="mt-4 border-t border-canopy/10 pt-4">
-                    <p className="mb-2 text-sm font-medium text-canopy-dark">Assign Workers</p>
-                    {workers.length === 0 ? (
-                      <p className="text-sm text-canopy/60">
-                        No workers yet.{' '}
-                        <Link to="/system/workers" className="text-canopy underline">
-                          Add workers
-                        </Link>
-                        .
-                      </p>
+                  <div className="text-right">
+                    <p className="font-semibold text-canopy-dark">{currency(b.total)}</p>
+                    {balance > 0 ? (
+                      <p className="text-xs text-red-600">Balance {currency(balance)}</p>
                     ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {workers.map((w) => {
-                          const on = assigned.includes(w.id)
-                          return (
-                            <button
-                              key={w.id}
-                              onClick={() => toggleWorker(b.id, w.id)}
-                              className={`rounded-full border px-3 py-1.5 text-sm transition ${
-                                on
-                                  ? 'border-canopy bg-canopy text-white'
-                                  : 'border-canopy/30 text-canopy hover:bg-canopy/10'
-                              }`}
-                            >
-                              {on ? '\u2713 ' : ''}
-                              {w.name}
-                            </button>
-                          )
-                        })}
-                      </div>
+                      <p className="text-xs text-green-600">Paid</p>
                     )}
                   </div>
-                )}
+                </button>
               </Card>
             )
           })}
         </div>
+      )}
+
+      {selectedBooking && (
+        <BookingDetail
+          booking={selectedBooking}
+          items={items}
+          workers={workers}
+          assignments={assignments[selectedBooking.id] || []}
+          onClose={() => setSelected(null)}
+          onSaved={() => {
+            setSelected(null)
+            load()
+          }}
+        />
       )}
     </div>
   )

@@ -50,6 +50,7 @@ export default function CalendarPage() {
     supabase
       .from('bookings')
       .select('*')
+      .neq('status', 'cancelled') // cancelled bookings are hidden from the calendar
       .order('event_date', { ascending: true })
       .then(({ data, error }) => {
         if (error) setError(error.message)

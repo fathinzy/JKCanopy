@@ -2,9 +2,9 @@
 
 export function PageHeader({ title, subtitle, action }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+    <div className="mb-5 flex flex-wrap items-end justify-between gap-3 sm:mb-6">
       <div>
-        <h1 className="text-2xl font-bold text-canopy-dark">{title}</h1>
+        <h1 className="text-xl font-bold text-canopy-dark sm:text-2xl">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-canopy/70">{subtitle}</p>}
       </div>
       {action}
@@ -14,8 +14,36 @@ export function PageHeader({ title, subtitle, action }) {
 
 export function Card({ children, className = '' }) {
   return (
-    <div className={`rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/5 ${className}`}>
+    <div className={`rounded-2xl bg-white p-4 shadow-sm ring-1 ring-black/5 sm:p-5 ${className}`}>
       {children}
+    </div>
+  )
+}
+
+// Full-screen modal/drawer that works well on phones (slides up on mobile,
+// centered dialog on larger screens).
+export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }) {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div
+        className={`relative z-10 flex max-h-[92vh] w-full ${maxWidth} flex-col rounded-t-2xl bg-white shadow-xl sm:rounded-2xl`}
+      >
+        <div className="flex items-center justify-between border-b border-canopy/10 px-5 py-3">
+          <h2 className="font-semibold text-canopy-dark">{title}</h2>
+          <button
+            onClick={onClose}
+            className="rounded-full p-1.5 text-canopy/60 hover:bg-canopy/10 hover:text-canopy"
+            aria-label="Close"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div className="overflow-y-auto px-5 py-4">{children}</div>
+      </div>
     </div>
   )
 }
