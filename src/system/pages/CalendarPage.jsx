@@ -13,11 +13,15 @@ function googleCalUrl(booking) {
   const end = d.toISOString().slice(0, 10).replaceAll('-', '')
 
   const text = `JKCanopy: ${booking.customer_name} (${booking.booking_no})`
+  const itemsText =
+    booking.items && booking.items.length > 0
+      ? booking.items.map((li) => `${li.name} x ${li.qty}`).join(', ')
+      : `${booking.canopies || 0} canopy`
   const details = [
     `Booking: ${booking.booking_no}`,
     `Customer: ${booking.customer_name}`,
     `Phone: ${booking.phone || '-'}`,
-    `Canopies: ${booking.canopies}, Chairs: ${booking.chairs}`,
+    `Items: ${itemsText}`,
     `Theme: ${booking.theme_colour || '-'} / Canopy: ${booking.canopy_colour || '-'}`,
   ].join('\n')
 
@@ -49,7 +53,7 @@ export default function CalendarPage() {
   useEffect(() => {
     supabase
       .from('bookings')
-      .select('*')
+      .select('*, items:booking_items(name,qty)')
       .neq('status', 'cancelled') // cancelled bookings are hidden from the calendar
       .order('event_date', { ascending: true })
       .then(({ data, error }) => {

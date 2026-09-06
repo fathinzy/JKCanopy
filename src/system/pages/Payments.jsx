@@ -32,6 +32,12 @@ export default function Payments() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  // Tabs: 'create' (existing) or 'report' (monthly paid report).
+  const [tab, setTab] = useState('create')
+  const [reportMonth, setReportMonth] = useState(() => new Date().toISOString().slice(0, 7)) // YYYY-MM
+  const [reportRows, setReportRows] = useState([]) // slips paid in the month for the worker
+  const [reportLoading, setReportLoading] = useState(false)
+
   // Load workers once.
   useEffect(() => {
     supabase
@@ -147,6 +153,81 @@ export default function Payments() {
   const totalAmount = chosen.reduce((sum, c) => sum + c.amount, 0)
   const worker = workers.find((w) => w.id === workerId)
 
+  // Monthly PAID report: all payment slips for the worker paid within the month.
+  async function loadReport() {
+    if (!workerId || !reportMonth) {
+      setReportRows([])
+      return
+    }
+    setReportLoading(true)
+    setError('')
+    const start = `${reportMonth}-01`
+    // First day of next month as the exclusive upper bound.
+    const [y, m] = reportMonth.split('-').map((n) => parseInt(n, 10))
+    const next = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`
+    const { data, error } = await supabase
+      .from('payment_slips')
+      .select('*, lines:payment_slip_bookings(*, booking:bookings(booking_no,event_date,customer_name))')
+      .eq('worker_id', workerId)
+      .gte('paid_at', start)
+      .lt('paid_at', next)
+      .order('paid_at', { ascending: true })
+    if (error) setError(error.message)
+    else setReportRows(data ?? [])
+    setReportLoading(false)
+  }
+
+  useEffect(() => {
+    if (tab === 'report') loadReport()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, workerId, reportMonth])
+
+  const reportTotal = reportRows.reduce((s, r) => s + Number(r.amount || 0), 0)
+  const reportJobCount = reportRows.reduce((s, r) => s + (r.lines || []).length, 0)
+
+  function printReport() {
+    const w = worker || {}
+    const monthLabel = new Date(`${reportMonth}-01`).toLocaleDateString('en-MY', {
+      month: 'long',
+      year: 'numeric',
+    })
+    const rows = reportRows
+      .flatMap((slip) =>
+        (slip.lines || []).map(
+          (l) => `<tr>
+            <td>${l.booking?.booking_no ?? '-'}</td>
+            <td>${l.booking?.customer_name ?? '-'}</td>
+            <td>${slip.paid_at ?? '-'}</td>
+            <td class="num">${formatMoney(l.amount)}</td>
+          </tr>`,
+        ),
+      )
+      .join('')
+    const body = `
+      <div class="brand"><h1>JK<span class="gold">Canopy</span></h1></div>
+      <div class="muted">${COMPANY.area} &middot; ${COMPANY.phone}</div>
+      <div class="box">
+        <div style="text-align:center; font-size:16px; font-weight:600; margin-bottom:8px;">
+          MONTHLY PAYMENT REPORT / LAPORAN BULANAN
+        </div>
+        <table>
+          <tbody>
+            <tr><th>Worker / Pekerja</th><td>${w.name ?? ''}</td></tr>
+            <tr><th>Month / Bulan</th><td>${monthLabel}</td></tr>
+            <tr><th>Jobs Paid / Kerja Dibayar</th><td>${reportJobCount}</td></tr>
+          </tbody>
+        </table>
+        <table>
+          <thead><tr><th>Booking</th><th>Customer</th><th>Paid Date</th><th class="num">Amount</th></tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr><td colspan="3" class="num total">Total Paid</td><td class="num total">${formatMoney(reportTotal)}</td></tr></tfoot>
+        </table>
+      </div>
+      <div class="footer">Issued by ${COMPANY.name}. Terima kasih.</div>
+    `
+    printHtml(`Monthly Report - ${w.name ?? ''} - ${monthLabel}`, body)
+  }
+
   async function createSlip() {
     if (chosen.length === 0) {
       setError('Select at least one job and enter an amount.')
@@ -234,6 +315,26 @@ export default function Payments() {
     <div>
       <PageHeader title="Payment Slips" subtitle="Pay workers for completed jobs" />
 
+      {/* Tabs */}
+      <div className="mb-5 inline-flex rounded-full bg-white p-1 shadow-sm ring-1 ring-black/5">
+        <button
+          onClick={() => setTab('create')}
+          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+            tab === 'create' ? 'bg-canopy text-white' : 'text-canopy'
+          }`}
+        >
+          Create Slip
+        </button>
+        <button
+          onClick={() => setTab('report')}
+          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+            tab === 'report' ? 'bg-canopy text-white' : 'text-canopy'
+          }`}
+        >
+          Monthly Report
+        </button>
+      </div>
+
       <Card className="mb-6">
         <Field label="Select Worker">
           <select className={inputClass} value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
@@ -247,7 +348,75 @@ export default function Payments() {
 
       {error && <p className="mb-4 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-700">{error}</p>}
 
-      {workerId && (
+      {/* Monthly report tab */}
+      {tab === 'report' && workerId && (
+        <Card>
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <Field label="Month">
+              <input
+                className={inputClass}
+                type="month"
+                value={reportMonth}
+                onChange={(e) => setReportMonth(e.target.value)}
+              />
+            </Field>
+            {reportRows.length > 0 && (
+              <Button variant="outline" onClick={printReport}>
+                Print / PDF
+              </Button>
+            )}
+          </div>
+
+          {reportLoading ? (
+            <p className="text-sm text-canopy/60">Loading...</p>
+          ) : reportRows.length === 0 ? (
+            <EmptyState>No payments recorded for this worker in this month.</EmptyState>
+          ) : (
+            <div>
+              <div className="mb-3 flex flex-wrap gap-6">
+                <div>
+                  <p className="text-xs text-canopy/60">Total Paid</p>
+                  <p className="text-2xl font-bold text-gold">{currency(reportTotal)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-canopy/60">Jobs Paid</p>
+                  <p className="text-2xl font-bold text-canopy-dark">{reportJobCount}</p>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-canopy/10 text-left text-canopy/70">
+                      <th className="py-2 pr-3 font-medium">Booking</th>
+                      <th className="py-2 pr-3 font-medium">Customer</th>
+                      <th className="py-2 pr-3 font-medium">Paid Date</th>
+                      <th className="py-2 font-medium text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportRows.flatMap((slip) =>
+                      (slip.lines || []).map((l) => (
+                        <tr key={l.id} className="border-b border-canopy/5">
+                          <td className="py-2 pr-3 text-canopy-dark">{l.booking?.booking_no ?? '-'}</td>
+                          <td className="py-2 pr-3 text-canopy/70">{l.booking?.customer_name ?? '-'}</td>
+                          <td className="py-2 pr-3 text-canopy/70">{slip.paid_at}</td>
+                          <td className="py-2 text-right font-medium">{currency(l.amount)}</td>
+                        </tr>
+                      )),
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {tab === 'report' && !workerId && (
+        <EmptyState>Select a worker to see their monthly payment report.</EmptyState>
+      )}
+
+      {tab === 'create' && workerId && (
         <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
           {/* Completed unpaid jobs to pay */}
           <Card>

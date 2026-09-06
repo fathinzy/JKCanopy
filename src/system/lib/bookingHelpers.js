@@ -45,8 +45,9 @@ export function toWaNumber(phone) {
 }
 
 // Build a job-assignment WhatsApp message to send to a worker.
-export function buildWorkerJobMessage(booking) {
-  const lines = [
+// `lineItems` is optional: [{ name, qty }] listing what's needed for the job.
+export function buildWorkerJobMessage(booking, lineItems = []) {
+  const msg = [
     '*JKCanopy - Job Assignment / Tugasan Kerja*',
     '',
     `Booking: ${booking.booking_no ?? ''}`,
@@ -54,16 +55,19 @@ export function buildWorkerJobMessage(booking) {
     `Customer / Pelanggan: ${booking.customer_name ?? ''}`,
     `Phone: ${booking.phone ?? '-'}`,
     `Address / Alamat: ${booking.address ?? '-'}`,
-    `Canopies / Khemah: ${booking.canopies ?? 0}`,
-    `Round tables: ${booking.round_tables ?? 0}, Long tables: ${booking.long_tables ?? 0}`,
-    `Chairs / Kerusi: ${booking.chairs ?? 0}`,
     `Canopy colour: ${booking.canopy_colour ?? '-'}`,
   ]
-  return lines.join('\n')
+  if (lineItems && lineItems.length > 0) {
+    msg.push('', 'Items:')
+    for (const li of lineItems) {
+      msg.push(`- ${li.name} x ${li.qty}`)
+    }
+  }
+  return msg.join('\n')
 }
 
-export function buildWorkerWaUrl(phone, booking) {
+export function buildWorkerWaUrl(phone, booking, lineItems = []) {
   const num = toWaNumber(phone)
-  const text = encodeURIComponent(buildWorkerJobMessage(booking))
+  const text = encodeURIComponent(buildWorkerJobMessage(booking, lineItems))
   return num ? `https://wa.me/${num}?text=${text}` : ''
 }

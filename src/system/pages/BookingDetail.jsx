@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase.js'
-import { buildQuote } from '../lib/quote.js'
 import {
   derivePaymentStatus,
   bookingStatusMeta,
@@ -8,9 +7,9 @@ import {
   sumPayments,
 } from '../lib/bookingHelpers.js'
 import { Modal, Button, Field, inputClass, currency, StatusBadge } from '../components/ui.jsx'
+import LineItemsEditor, { summariseLines } from '../components/LineItemsEditor.jsx'
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
-const CHAIRS_PER_TABLE = 8
 const themeColourOptions = ['Maroon', 'Gold', 'Green', 'Blue', 'Purple', 'Pink', 'White']
 const canopyColourOptions = ['white', 'red', 'blue']
 const statusOptions = ['draft', 'confirmed', 'completed', 'cancelled']
@@ -20,6 +19,7 @@ const statusOptions = ['draft', 'confirmed', 'completed', 'cancelled']
 export default function BookingDetail({ booking, items, workers, assignments, onClose, onSaved, onDeleted }) {
   const [form, setForm] = useState(() => ({ ...booking }))
   const [assigned, setAssigned] = useState(assignments || [])
+  const [lines, setLines] = useState([])
   const [payments, setPayments] = useState([])
   const [newPayment, setNewPayment] = useState({ amount: '', paid_at: todayIso(), note: '' })
   const [saving, setSaving] = useState(false)
@@ -41,36 +41,42 @@ export default function BookingDetail({ booking, items, workers, assignments, on
     else setPayments(data ?? [])
   }
 
+  // Load the booking's line items.
+  async function loadLines() {
+    const { data, error } = await supabase
+      .from('booking_items')
+      .select('*')
+      .eq('booking_id', booking.id)
+      .order('created_at', { ascending: true })
+    if (error) setError(error.message)
+    else
+      setLines(
+        (data ?? []).map((r) => ({
+          item_id: r.item_id,
+          name: r.name,
+          category: r.category,
+          qty: r.qty,
+          unit_price: r.unit_price,
+        })),
+      )
+  }
+
   useEffect(() => {
     loadPayments()
+    loadLines()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [booking.id])
 
   function set(key) {
     return (e) => setForm({ ...form, [key]: e.target.value })
   }
-  function setNum(key) {
-    return (e) => setForm({ ...form, [key]: Math.max(0, parseInt(e.target.value, 10) || 0) })
-  }
 
-  // Recompute total from current quantities + item prices whenever they change.
-  const quote = useMemo(
-    () =>
-      buildQuote(
-        {
-          canopies: form.canopies,
-          round_tables: form.round_tables,
-          long_tables: form.long_tables,
-          chairs: form.chairs,
-        },
-        items,
-      ),
-    [form.canopies, form.round_tables, form.long_tables, form.chairs, items],
-  )
+  // Total + canopy count derived from the current line items.
+  const summary = summariseLines(lines)
 
   const totalPaid = sumPayments(payments)
-  const balance = Math.max(0, quote.total - totalPaid)
-  const currentPaymentStatus = derivePaymentStatus(quote.total, totalPaid)
+  const balance = Math.max(0, summary.total - totalPaid)
+  const currentPaymentStatus = derivePaymentStatus(summary.total, totalPaid)
 
   async function toggleWorker(worker) {
     const isOn = assigned.includes(worker.id)
@@ -89,7 +95,11 @@ export default function BookingDetail({ booking, items, workers, assignments, on
       if (error) return setError(error.message)
       setAssigned((a) => [...a, worker.id])
       // After assigning, offer to notify the worker via WhatsApp.
-      const url = buildWorkerWaUrl(worker.phone, { ...form, booking_no: booking.booking_no })
+      const url = buildWorkerWaUrl(
+        worker.phone,
+        { ...form, booking_no: booking.booking_no },
+        lines.map((l) => ({ name: l.name, qty: l.qty })),
+      )
       if (url) {
         if (window.confirm(`Assigned ${worker.name}. Send WhatsApp job message now?`)) {
           window.open(url, '_blank', 'noopener,noreferrer')
@@ -128,7 +138,7 @@ export default function BookingDetail({ booking, items, workers, assignments, on
       return
     }
     const newTotalPaid = totalPaid + amount
-    await syncPaymentStatus(newTotalPaid, quote.total)
+    await syncPaymentStatus(newTotalPaid, summary.total)
     setNewPayment({ amount: '', paid_at: todayIso(), note: '' })
     loadPayments()
   }
@@ -140,7 +150,7 @@ export default function BookingDetail({ booking, items, workers, assignments, on
       setError(error.message)
       return
     }
-    await syncPaymentStatus(Math.max(0, totalPaid - Number(amount || 0)), quote.total)
+    await syncPaymentStatus(Math.max(0, totalPaid - Number(amount || 0)), summary.total)
     loadPayments()
   }
 
@@ -165,6 +175,10 @@ export default function BookingDetail({ booking, items, workers, assignments, on
   }
 
   async function save() {
+    if (lines.length === 0) {
+      setError('Add at least one item to the booking.')
+      return
+    }
     setSaving(true)
     setError('')
     const { error } = await supabase
@@ -176,16 +190,13 @@ export default function BookingDetail({ booking, items, workers, assignments, on
         event_date: form.event_date,
         theme_colour: form.theme_colour,
         canopy_colour: form.canopy_colour,
-        canopies: Number(form.canopies),
-        round_tables: Number(form.round_tables),
-        long_tables: Number(form.long_tables),
-        chairs: Number(form.chairs),
+        canopies: summary.canopies,
         notes: form.notes?.trim(),
         status: form.status,
         // Recompute payment status against the (possibly changed) total.
-        payment_status: derivePaymentStatus(quote.total, totalPaid),
+        payment_status: derivePaymentStatus(summary.total, totalPaid),
         deposit_paid: totalPaid,
-        total: quote.total,
+        total: summary.total,
       })
       .eq('id', booking.id)
 
@@ -195,17 +206,27 @@ export default function BookingDetail({ booking, items, workers, assignments, on
       return
     }
 
-    // Keep the linked quotation in sync with the edited quantities.
+    // Replace the line items with the current set (simplest reliable sync).
+    await supabase.from('booking_items').delete().eq('booking_id', booking.id)
+    const itemRows = summary.rows.map((r) => ({ ...r, booking_id: booking.id }))
+    if (itemRows.length > 0) {
+      const { error: biErr } = await supabase.from('booking_items').insert(itemRows)
+      if (biErr) {
+        setSaving(false)
+        setError(biErr.message)
+        return
+      }
+    }
+
+    // Keep the linked quotation in sync.
     await supabase
       .from('quotations')
-      .update({ line_items: quote.lineItems, subtotal: quote.subtotal, total: quote.total })
+      .update({ line_items: summary.rows, subtotal: summary.total, total: summary.total })
       .eq('booking_id', booking.id)
 
     setSaving(false)
     onSaved()
   }
-
-  const totalTables = Number(form.round_tables) + Number(form.long_tables)
 
   return (
     <Modal open onClose={onClose} title={`Booking ${booking.booking_no}`} maxWidth="max-w-2xl">
@@ -214,7 +235,7 @@ export default function BookingDetail({ booking, items, workers, assignments, on
           <StatusBadge tone={bookingStatusMeta[form.status]?.tone ?? 'gray'}>
             {bookingStatusMeta[form.status]?.label ?? form.status}
           </StatusBadge>
-          <span className="text-sm text-canopy/60">Total {currency(quote.total)}</span>
+          <span className="text-sm text-canopy/60">Total {currency(summary.total)}</span>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -250,30 +271,18 @@ export default function BookingDetail({ booking, items, workers, assignments, on
           </Field>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-4">
-          <Field label="Canopies">
-            <input className={inputClass} type="number" min="0" value={form.canopies ?? 0} onChange={setNum('canopies')} />
-          </Field>
-          <Field label="Round Tables">
-            <input className={inputClass} type="number" min="0" value={form.round_tables ?? 0} onChange={setNum('round_tables')} />
-          </Field>
-          <Field label="Long Tables">
-            <input className={inputClass} type="number" min="0" value={form.long_tables ?? 0} onChange={setNum('long_tables')} />
-          </Field>
-          <Field label="Chairs">
-            <input className={inputClass} type="number" min="0" value={form.chairs ?? 0} onChange={setNum('chairs')} />
-          </Field>
+        {/* Line items */}
+        <div className="rounded-lg bg-sand/50 p-4">
+          <p className="mb-2 text-sm font-medium text-canopy-dark">Items</p>
+          <LineItemsEditor items={items} lines={lines} onChange={setLines} />
         </div>
-        <p className="-mt-2 text-xs text-canopy/50">
-          Suggested chairs for {totalTables} tables: {totalTables * CHAIRS_PER_TABLE}
-        </p>
 
         {/* Payment ledger */}
         <div className="rounded-lg bg-sand/60 p-4">
           <div className="mb-3 grid gap-2 sm:grid-cols-3">
             <div>
               <p className="text-xs text-canopy/60">Total</p>
-              <p className="font-semibold text-canopy-dark">{currency(quote.total)}</p>
+              <p className="font-semibold text-canopy-dark">{currency(summary.total)}</p>
             </div>
             <div>
               <p className="text-xs text-canopy/60">Paid</p>

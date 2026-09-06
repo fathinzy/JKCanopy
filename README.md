@@ -56,7 +56,9 @@ To add real gallery photos: put the file in `public/gallery/`, then set that ite
 
    Then run [`supabase/schema_v3.sql`](supabase/schema_v3.sql). This adds the payment ledger (`booking_payments`) so each booking can have a deposit plus follow-up payments until the balance reaches zero, with the payment status updating automatically.
 
-   All three migrations are safe to run once, in order (each only adds what is missing).
+   Then run [`supabase/schema_v4.sql`](supabase/schema_v4.sql). This adds `booking_items` so bookings are built from a list of items chosen from the Item Registry (each with its own qty and editable unit price) instead of fixed canopy/table/chair fields.
+
+   All four migrations are safe to run once, in order (each only adds what is missing).
 
 2. **Create login users** for your dad, sister, and you. In the dashboard go to **Authentication → Users → Add user**, set an email + password for each. (Email confirmation can be turned off under **Authentication → Providers → Email** so logins work immediately.)
 
@@ -72,12 +74,12 @@ To add real gallery photos: put the file in `public/gallery/`, then set that ite
 | Module | What it does |
 |--------|--------------|
 | **Dashboard** | Filter by year/month (drills down: all years → yearly, one year → monthly, one month → daily). Clickable cards for upcoming events, pending payment, revenue, total bookings. Charts for revenue, canopy orders, worker salary, and jobs assigned. |
-| **New Booking** | 2-step registry: details → auto quotation (with deposit + balance) → confirm. Auto booking ID. The deposit becomes the first payment. |
+| **New Booking** | 2-step registry: pick items from the registry (qty + editable unit price, running total) → quotation (with deposit + balance) → confirm. Auto booking ID. The deposit becomes the first payment. |
 | **Booking List** | Search by booking no/customer, filter by payment and booking status. Tap a booking to edit everything, record payments one by one (deposit then follow-ups until the balance is zero — status updates automatically), assign workers (sends a WhatsApp job message to the worker), set status (Confirmed / Completed / Cancelled), or delete the booking. Cancelled bookings drop off the calendar. |
 | **Quotations** | List all quotations, print / save as PDF |
 | **Calendar** | Month view of event dates (cancelled bookings excluded); click an event to add it to Google Calendar |
 | **Workers** | Worker registry (name, IC, phone, bank details). Phone is needed for WhatsApp job messages. |
-| **Payment Slips** | Pick a worker, see their completed unpaid jobs, select multiple and key in the amount for each, then generate one slip. Paid jobs disappear from the list. Print / save as PDF. |
+| **Payment Slips** | *Create Slip:* pick a worker, see their completed unpaid jobs, select multiple, key in an amount for each, generate one slip (paid jobs disappear). *Monthly Report:* pick a worker + month to view and print a summary of everything paid to them that month. Both print / save as PDF. |
 | **Items** | Item registry (name, category, price) — drives quotation pricing |
 
 The whole system is responsive and works on phones and tablets.
